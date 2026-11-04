@@ -42,3 +42,4 @@ def test_attestation_lifecycle_and_dsse_verification():
 
     # Verify signature FAILS on tampered payload
     assert AttestationSigner.verify_dsse(tampered_envelope, pub_key_pem) is False
+

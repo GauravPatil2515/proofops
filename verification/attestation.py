@@ -185,3 +185,4 @@ class AttestationSigner:
             return True
         except InvalidSignature:
             return False
+
