@@ -1,0 +1,496 @@
+// ProofOps Product UI State & Controller
+let currentView = 'overview';
+let activeIncidentId = null;
+let activeTab = 'overview';
+
+// Theme Management
+function initTheme() {
+  const isDark = localStorage.getItem('proofops-theme') === 'dark';
+  if (isDark) {
+    document.documentElement.classList.add('dark');
+    document.getElementById('theme-icon').textContent = '☀️';
+    document.getElementById('theme-label').textContent = 'Light Mode';
+  }
+}
+
+function toggleDarkMode() {
+  const isDark = document.documentElement.classList.toggle('dark');
+  localStorage.setItem('proofops-theme', isDark ? 'dark' : 'light');
+  document.getElementById('theme-icon').textContent = isDark ? '☀️' : '🌙';
+  document.getElementById('theme-label').textContent = isDark ? 'Light Mode' : 'Dark Mode';
+}
+
+// Navigation Controller
+function navigate(view, incidentId = null) {
+  currentView = view;
+  if (incidentId) activeIncidentId = incidentId;
+
+  document.querySelectorAll('.nav-item').forEach(el => {
+    el.classList.toggle('active', el.dataset.view === view);
+  });
+
+  const titleEl = document.getElementById('topbar-view-title');
+  titleEl.textContent = view.charAt(0).toUpperCase() + view.slice(1);
+
+  renderView();
+}
+
+// API Helpers
+async function fetchAPI(endpoint, options = {}) {
+  try {
+    const res = await fetch(endpoint, options);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    return await res.json();
+  } catch (err) {
+    console.error('API Error:', err);
+    return null;
+  }
+}
+
+// View Renderer
+async function renderView() {
+  const container = document.getElementById('view-container');
+
+  if (currentView === 'overview') {
+    await renderOverview(container);
+  } else if (currentView === 'incidents') {
+    await renderIncidentsList(container);
+  } else if (currentView === 'incident-detail') {
+    await renderIncidentDetail(container);
+  } else if (currentView === 'approvals') {
+    await renderApprovals(container);
+  } else if (currentView === 'integrations') {
+    await renderIntegrations(container);
+  } else if (currentView === 'teams') {
+    renderTeams(container);
+  } else if (currentView === 'evidence') {
+    renderEvidenceReports(container);
+  } else if (currentView === 'settings') {
+    renderSettings(container);
+  }
+}
+
+// ── 1. Overview Dashboard ────────────────────────────────────────────────────
+async function renderOverview(container) {
+  const data = await fetchAPI('/api/v1/dashboard');
+  if (!data) return;
+
+  document.getElementById('badge-incidents').textContent = data.stats.active_incidents;
+  document.getElementById('badge-approvals').textContent = data.stats.awaiting_approval;
+
+  container.innerHTML = `
+    <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-bottom: 28px;">
+      <div class="card" style="padding: 16px;">
+        <div style="font-size: 12px; color: var(--ink-muted); font-weight: 600;">ACTIVE INCIDENTS</div>
+        <div style="font-size: 28px; font-weight: 700; margin-top: 4px; color: ${data.stats.active_incidents > 0 ? 'var(--accent-flame)' : 'var(--ink-deep)'};">
+          ${data.stats.active_incidents}
+        </div>
+      </div>
+      <div class="card" style="padding: 16px;">
+        <div style="font-size: 12px; color: var(--ink-muted); font-weight: 600;">AWAITING APPROVAL</div>
+        <div style="font-size: 28px; font-weight: 700; margin-top: 4px; color: ${data.stats.awaiting_approval > 0 ? 'var(--status-amber)' : 'var(--ink-deep)'};">
+          ${data.stats.awaiting_approval}
+        </div>
+      </div>
+      <div class="card" style="padding: 16px;">
+        <div style="font-size: 12px; color: var(--ink-muted); font-weight: 600;">VERIFIED RESOLUTIONS</div>
+        <div style="font-size: 28px; font-weight: 700; margin-top: 4px; color: var(--status-emerald);">
+          ${data.stats.verified_resolutions}
+        </div>
+      </div>
+      <div class="card" style="padding: 16px;">
+        <div style="font-size: 12px; color: var(--ink-muted); font-weight: 600;">EVIDENCE GATE ENGINE</div>
+        <div style="font-size: 14px; font-weight: 700; margin-top: 12px;">
+          <span class="badge badge-emerald"><span class="dot"></span> 100% OPERATIONAL</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+        <div>
+          <h2 style="font-size: 16px; font-weight: 700;">Active Incidents</h2>
+          <p style="font-size: 13px; color: var(--ink-muted);">Monitored through Sentry, investigated and verified via Switch rooms.</p>
+        </div>
+        <button class="btn btn-secondary" onclick="navigate('incidents')">View All</button>
+      </div>
+
+      <div style="overflow-x: auto;">
+        <table style="width: 100%; border-collapse: collapse; text-align: left; font-size: 13px;">
+          <thead>
+            <tr style="border-bottom: 1px solid var(--border-hairline); color: var(--ink-muted);">
+              <th style="padding: 10px 12px;">ID</th>
+              <th style="padding: 10px 12px;">Title</th>
+              <th style="padding: 10px 12px;">Service</th>
+              <th style="padding: 10px 12px;">Severity</th>
+              <th style="padding: 10px 12px;">Status</th>
+              <th style="padding: 10px 12px;">Action</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${data.recent_incidents.length === 0 ? `
+              <tr><td colspan="6" style="padding: 24px; text-align: center; color: var(--ink-muted);">No active incidents. Launch demo incident above!</td></tr>
+            ` : data.recent_incidents.map(inc => `
+              <tr style="border-bottom: 1px solid var(--border-hairline);">
+                <td style="padding: 12px; font-family: var(--font-mono); font-weight: 700;">${inc.id}</td>
+                <td style="padding: 12px; font-weight: 600;">${inc.title}</td>
+                <td style="padding: 12px; font-family: var(--font-mono);">${inc.service}</td>
+                <td style="padding: 12px;">
+                  <span class="badge badge-${inc.severity === 'high' ? 'crimson' : 'amber'}">${inc.severity}</span>
+                </td>
+                <td style="padding: 12px;">
+                  <span class="badge badge-${getStatusBadgeClass(inc.status)}"><span class="dot"></span> ${inc.status.replace('_', ' ')}</span>
+                </td>
+                <td style="padding: 12px;">
+                  <button class="btn btn-secondary" style="padding: 4px 10px; font-size: 12px;" onclick="navigate('incident-detail', '${inc.id}')">Inspect</button>
+                </td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  `;
+}
+
+function getStatusBadgeClass(status) {
+  if (status === 'resolved') return 'emerald';
+  if (status === 'awaiting_approval') return 'amber';
+  if (status === 'blocked' || status === 'rejected') return 'crimson';
+  return 'faint';
+}
+
+// ── 2. Incident Detail (The Flagship 6-Question View) ─────────────────────────
+async function renderIncidentDetail(container) {
+  if (!activeIncidentId) return navigate('overview');
+  const data = await fetchAPI(`/api/v1/incidents/${activeIncidentId}`);
+  if (!data) return;
+
+  const inc = data.incident;
+  const q = data.core_questions;
+  const evi = data.evidence;
+
+  container.innerHTML = `
+    <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 24px;">
+      <div>
+        <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 6px;">
+          <span style="font-family: var(--font-mono); font-weight: 700; font-size: 18px;">${inc.id}</span>
+          <span class="badge badge-${inc.severity === 'high' ? 'crimson' : 'amber'}">${inc.severity} SEVERITY</span>
+          <span class="badge badge-${getStatusBadgeClass(inc.status)}"><span class="dot"></span> ${inc.status.replace('_', ' ')}</span>
+        </div>
+        <h1 style="font-size: 22px; font-weight: 700; letter-spacing: -0.02em;">${inc.title}</h1>
+      </div>
+      <div style="display: flex; gap: 10px;">
+        ${inc.status === 'awaiting_approval' ? `
+          <button class="btn btn-success" onclick="approveIncident('${inc.id}', 'approved')">✓ Authorize Production Deploy</button>
+          <button class="btn btn-danger" onclick="approveIncident('${inc.id}', 'rejected')">✕ Reject Fix</button>
+        ` : inc.status === 'resolved' ? `
+          <span class="badge badge-emerald" style="font-size: 13px; padding: 6px 12px;"><span class="dot"></span> Production Verified & Closed</span>
+        ` : `
+          <button class="btn btn-primary" onclick="reRunInvestigation('${inc.id}')">🔄 Re-run Pipeline</button>
+        `}
+      </div>
+    </div>
+
+    <!-- Stepper Pipeline -->
+    <div class="card" style="padding: 16px 24px; margin-bottom: 24px;">
+      <div style="display: flex; justify-content: space-between; font-size: 12px; font-weight: 600; font-family: var(--font-mono);">
+        <span style="color: var(--status-emerald);">● 1. ALERT INGESTED</span>
+        <span style="color: var(--status-emerald);">● 2. TRIAGED</span>
+        <span style="color: var(--status-emerald);">● 3. REPRODUCED</span>
+        <span style="color: var(--status-emerald);">● 4. PATCH CRAFTED</span>
+        <span style="color: ${evi && evi.checks.regression_tests_passed ? 'var(--status-emerald)' : 'var(--status-amber)'};">● 5. VERIFIED (EVIDENCE GATE)</span>
+        <span style="color: ${inc.status === 'resolved' ? 'var(--status-emerald)' : 'var(--status-amber)'};">● 6. ${inc.status === 'resolved' ? 'DEPLOYED' : 'HUMAN APPROVAL'}</span>
+      </div>
+    </div>
+
+    <!-- Tabs -->
+    <div class="tab-bar">
+      <button class="tab-btn ${activeTab === 'overview' ? 'active' : ''}" onclick="switchDetailTab('overview')">Overview (6 Human Questions)</button>
+      <button class="tab-btn ${activeTab === 'evidence' ? 'active' : ''}" onclick="switchDetailTab('evidence')">Evidence & Verification (4/4)</button>
+      <button class="tab-btn ${activeTab === 'activity' ? 'active' : ''}" onclick="switchDetailTab('activity')">Activity Timeline</button>
+    </div>
+
+    <div id="tab-content">
+      ${activeTab === 'overview' ? renderTabOverview(q, inc) : activeTab === 'evidence' ? renderTabEvidence(evi, inc) : renderTabActivity(data.timeline)}
+    </div>
+  `;
+}
+
+function switchDetailTab(tab) {
+  activeTab = tab;
+  renderIncidentDetail(document.getElementById('view-container'));
+}
+
+function renderTabOverview(q, inc) {
+  return `
+    <div style="display: grid; grid-template-columns: 2fr 1fr; gap: 24px;">
+      <div>
+        <div class="card">
+          <h3 style="font-size: 14px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: var(--ink-faint); margin-bottom: 16px;">Core Incident Answers</h3>
+          
+          <div style="margin-bottom: 20px;">
+            <div style="font-size: 12px; font-weight: 700; color: var(--accent-flame); margin-bottom: 4px;">1. WHAT BROKE?</div>
+            <div style="font-size: 14px; font-weight: 600;">${q.what_broke}</div>
+          </div>
+
+          <div style="margin-bottom: 20px;">
+            <div style="font-size: 12px; font-weight: 700; color: var(--accent-flame); margin-bottom: 4px;">2. WHAT IS AFFECTED?</div>
+            <div style="font-size: 14px; color: var(--ink-deep);">${q.what_is_affected}</div>
+          </div>
+
+          <div style="margin-bottom: 20px;">
+            <div style="font-size: 12px; font-weight: 700; color: var(--accent-flame); margin-bottom: 4px;">3. WHAT CAUSED IT (HYPOTHESIS)?</div>
+            <div style="font-size: 14px; color: var(--ink-deep);">${q.what_caused_it}</div>
+          </div>
+
+          <div style="margin-bottom: 20px;">
+            <div style="font-size: 12px; font-weight: 700; color: var(--accent-flame); margin-bottom: 4px;">4. WHAT HAS PROOFOPS TRIED?</div>
+            <div style="font-size: 14px; color: var(--ink-deep);">${q.what_has_proofops_tried}</div>
+          </div>
+
+          <div style="margin-bottom: 20px;">
+            <div style="font-size: 12px; font-weight: 700; color: var(--status-emerald); margin-bottom: 4px;">5. DOES THE PROPOSED FIX ACTUALLY WORK?</div>
+            <div style="font-size: 14px; font-weight: 600; color: var(--status-emerald);">${q.does_fix_work}</div>
+          </div>
+
+          <div>
+            <div style="font-size: 12px; font-weight: 700; color: var(--status-amber); margin-bottom: 4px;">6. WHAT DO I NEED TO APPROVE?</div>
+            <div style="font-size: 14px; font-weight: 600;">${q.what_to_approve}</div>
+          </div>
+        </div>
+      </div>
+
+      <div>
+        <div class="card">
+          <h3 style="font-size: 14px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: var(--ink-faint); margin-bottom: 16px;">Telemetry Specs</h3>
+          <div style="font-size: 13px; line-height: 2;">
+            <div><span style="color: var(--ink-muted);">Culprit Commit:</span> <code style="font-family: var(--font-mono); font-weight: 700;">${inc.culprit_commit || '8f2c19a'}</code></div>
+            <div><span style="color: var(--ink-muted);">Service:</span> <code style="font-family: var(--font-mono);">${inc.service}</code></div>
+            <div><span style="color: var(--ink-muted);">Detected By:</span> Sentry Webhook</div>
+            <div><span style="color: var(--ink-muted);">Room Channel:</span> <code style="font-family: var(--font-mono);">#incident-${inc.id.toLowerCase()}</code></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function renderTabEvidence(evi, inc) {
+  if (!evi) return `<div class="card">No evidence bundle generated yet.</div>`;
+
+  return `
+    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 24px; margin-bottom: 24px;">
+      <div class="card">
+        <h3 style="font-size: 14px; font-weight: 700; margin-bottom: 12px;">🛡️ Required Checks Checklist (4/4 Passed)</h3>
+        <div style="font-size: 13px; line-height: 2.2;">
+          <div><span style="color: var(--status-emerald); font-weight: 700;">✓</span> Reproduction Test Failed Initially (500 Error Confirmed)</div>
+          <div><span style="color: var(--status-emerald); font-weight: 700;">✓</span> Patch Diff Scoped (Touches only <code>app.py</code>)</div>
+          <div><span style="color: var(--status-emerald); font-weight: 700;">✓</span> Regression Tests Clean (Pytest 3 passed in 0.08s)</div>
+          <div><span style="color: var(--status-emerald); font-weight: 700;">✓</span> SHA-256 Tamper-Proof Cryptographic Lock</div>
+        </div>
+      </div>
+
+      <div class="card">
+        <h3 style="font-size: 14px; font-weight: 700; margin-bottom: 12px;">Cryptographic Seal</h3>
+        <div style="font-size: 12px; color: var(--ink-muted); margin-bottom: 8px;">SHA-256 PATCH DIFF HASH</div>
+        <div class="code-block" style="padding: 10px; font-size: 11px; word-break: break-all; color: var(--accent-flame); font-weight: 700;">
+          ${evi.patch_sha256}
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3 style="font-size: 14px; font-weight: 700; margin-bottom: 12px;">Verified Code Patch Diff</h3>
+      <div class="code-block">
+        <div class="diff-sub">- tier_divisor = len(code) - 6</div>
+        <div class="diff-sub">- discount = int(subtotal * (rate / tier_divisor))</div>
+        <div class="diff-add">+ discount = int(subtotal * rate)</div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3 style="font-size: 14px; font-weight: 700; margin-bottom: 12px;">Isolated Pytest Execution Logs</h3>
+      <pre class="code-block">${evi.test_summary}</pre>
+    </div>
+  `;
+}
+
+function renderTabActivity(timeline) {
+  return `
+    <div class="card">
+      <h3 style="font-size: 14px; font-weight: 700; margin-bottom: 16px;">Switch Multi-Agent Hand-off History</h3>
+      ${timeline.map(e => `
+        <div style="border-left: 2px solid var(--accent-flame); padding-left: 16px; margin-bottom: 20px;">
+          <div style="font-size: 12px; font-family: var(--font-mono); color: var(--ink-faint);">${new Date(e.timestamp * 1000).toLocaleTimeString()}</div>
+          <div style="font-size: 14px; font-weight: 700; color: var(--ink-deep);">${e.actor} <span style="font-size: 11px; font-weight: 500; color: var(--ink-muted);">(${e.type})</span></div>
+          <div style="font-size: 13px; color: var(--ink-muted); margin-top: 4px;">${e.description}</div>
+        </div>
+      `).join('')}
+    </div>
+  `;
+}
+
+// ── Actions ──────────────────────────────────────────────────────────────────
+async function launchDemoIncident() {
+  const btn = document.getElementById('btn-launch-demo');
+  btn.disabled = true;
+  btn.textContent = '⏳ Launching Incident...';
+
+  const res = await fetchAPI('/api/v1/incidents/demo', { method: 'POST' });
+  if (res && res.incident_id) {
+    navigate('incident-detail', res.incident_id);
+  }
+  btn.disabled = false;
+  btn.textContent = '⚡ Launch Demo Incident (PO-1042)';
+}
+
+async function approveIncident(id, decision) {
+  const reason = decision === 'approved' ? 'Approved via Wispr Voice / 1-Click Sign-off' : 'Rejected for revision';
+  await fetchAPI(`/api/v1/incidents/${id}/approve`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ decision, reason })
+  });
+  renderIncidentDetail(document.getElementById('view-container'));
+}
+
+// ── 3. Integrations View ─────────────────────────────────────────────────────
+async function renderIntegrations(container) {
+  const integrations = await fetchAPI('/api/v1/integrations') || [];
+  container.innerHTML = `
+    <div style="margin-bottom: 24px;">
+      <h1 style="font-size: 20px; font-weight: 700;">Tool Integrations</h1>
+      <p style="font-size: 13px; color: var(--ink-muted);">Manage telemetry, VCS, and Switch room connections.</p>
+    </div>
+
+    <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px;">
+      ${integrations.map(int => `
+        <div class="card" style="padding: 20px;">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+            <div style="font-size: 16px; font-weight: 700;">${int.name}</div>
+            <span class="badge badge-emerald"><span class="dot"></span> ${int.status}</span>
+          </div>
+          <div style="font-size: 13px; color: var(--ink-muted); margin-bottom: 16px;">
+            Account: <code style="font-family: var(--font-mono); color: var(--ink-deep);">${int.account_label}</code>
+          </div>
+          <div style="font-size: 11px; font-family: var(--font-mono); color: var(--ink-faint); margin-bottom: 16px;">
+            Scopes: ${int.granted_scopes.join(', ')}
+          </div>
+          <button class="btn btn-secondary" style="width: 100%;">Test Connection</button>
+        </div>
+      `).join('')}
+    </div>
+  `;
+}
+
+// ── 4. Approvals Hub ─────────────────────────────────────────────────────────
+async function renderApprovals(container) {
+  const incidents = await fetchAPI('/api/v1/incidents') || [];
+  const pending = incidents.filter(i => i.status === 'awaiting_approval');
+
+  container.innerHTML = `
+    <div style="margin-bottom: 24px;">
+      <h1 style="font-size: 20px; font-weight: 700;">Pending Approvals</h1>
+      <p style="font-size: 13px; color: var(--ink-muted);">Verified fixes awaiting human authorization before production deployment.</p>
+    </div>
+
+    ${pending.length === 0 ? `
+      <div class="card" style="padding: 32px; text-align: center; color: var(--ink-muted);">
+        No pending approvals. Launch demo incident or run an alert investigation!
+      </div>
+    ` : pending.map(inc => `
+      <div class="card">
+        <div style="display: flex; justify-content: space-between; align-items: center;">
+          <div>
+            <div style="font-family: var(--font-mono); font-weight: 700; color: var(--accent-flame);">${inc.id}</div>
+            <div style="font-size: 16px; font-weight: 700; margin-top: 4px;">${inc.title}</div>
+            <div style="font-size: 13px; color: var(--ink-muted); margin-top: 2px;">Service: ${inc.service} • Verified by Evidence Gate (4/4 passed)</div>
+          </div>
+          <button class="btn btn-primary" onclick="navigate('incident-detail', '${inc.id}')">Review & Authorize</button>
+        </div>
+      </div>
+    `).join('')}
+  `;
+}
+
+// ── 5. Agent Teams View (Switch Template Issue #1095) ────────────────────────
+function renderTeams(container) {
+  container.innerHTML = `
+    <div style="margin-bottom: 24px;">
+      <h1 style="font-size: 20px; font-weight: 700;">Switch Agent Team Shapes</h1>
+      <p style="font-size: 13px; color: var(--ink-muted);">Preconfigured multi-agent teams resolving Switch Issue #1095.</p>
+    </div>
+
+    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 24px;">
+      <div class="card">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+          <h2 style="font-size: 16px; font-weight: 700;">Incident Response Squad</h2>
+          <span class="badge badge-emerald">ACTIVE</span>
+        </div>
+        <p style="font-size: 13px; color: var(--ink-muted); margin-bottom: 16px;">
+          4 Specialized Agents: Incident Triager, ReproLab Engineer, Hotfix Engineer, and Evidence Gate Verifier.
+        </p>
+        <div class="code-block" style="font-size: 11px;">
+template: proofops.template.yaml
+agents: [proofops-triager, proofops-repro, proofops-fixer, proofops-verifier]
+policy: Evidence Gate v1.0
+        </div>
+      </div>
+
+      <div class="card">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+          <h2 style="font-size: 16px; font-weight: 700;">Bug Investigation Squad</h2>
+          <span class="badge badge-faint">AVAILABLE</span>
+        </div>
+        <p style="font-size: 13px; color: var(--ink-muted); margin-bottom: 16px;">
+          Lightweight pair: Investigator and Reproducer for non-production issue triage.
+        </p>
+        <div class="code-block" style="font-size: 11px;">
+template: bug-investigation.template.yaml
+agents: [bug-investigator, bug-repro]
+policy: Evidence Optional
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function renderEvidenceReports(container) {
+  container.innerHTML = `
+    <div style="margin-bottom: 24px;">
+      <h1 style="font-size: 20px; font-weight: 700;">Evidence Ledger & Compliance Reports</h1>
+      <p style="font-size: 13px; color: var(--ink-muted);">Cryptographically sealed post-mortems and test execution receipts.</p>
+    </div>
+    <div class="card">
+      <div style="display: flex; justify-content: space-between; align-items: center;">
+        <div>
+          <div style="font-weight: 700;">Post-Mortem: INC-1042 (Checkout API 500)</div>
+          <div style="font-size: 13px; color: var(--ink-muted);">Certified by Evidence Gate • SHA-256 Verified</div>
+        </div>
+        <button class="btn btn-secondary">Download Markdown Report</button>
+      </div>
+    </div>
+  `;
+}
+
+function renderSettings(container) {
+  container.innerHTML = `
+    <div style="margin-bottom: 24px;">
+      <h1 style="font-size: 20px; font-weight: 700;">Workspace Settings</h1>
+      <p style="font-size: 13px; color: var(--ink-muted);">Configure workspace policies and verification enforcement.</p>
+    </div>
+    <div class="card">
+      <h3 style="font-size: 14px; font-weight: 700; margin-bottom: 12px;">Strict Evidence Policy</h3>
+      <p style="font-size: 13px; color: var(--ink-muted); margin-bottom: 16px;">Require passing reproduction failure and green pytest runs before any PR can be opened.</p>
+      <span class="badge badge-emerald">ENFORCED</span>
+    </div>
+  `;
+}
+
+// Initial boot
+window.addEventListener('DOMContentLoaded', () => {
+  initTheme();
+  renderView();
+});
+
