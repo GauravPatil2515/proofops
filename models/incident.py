@@ -48,6 +48,8 @@ class Evidence(Base):
     test_summary = Column(Text, nullable=True)
     gate_verdict = Column(String(32), nullable=False)  # VERIFIED, REJECTED
     authorized_by = Column(String(128), default="proofops-verifier")
+    attestation_json = Column(Text, nullable=True)
+    dsse_envelope = Column(JSON, nullable=True)
     created_at = Column(Float, default=time.time)
 
 

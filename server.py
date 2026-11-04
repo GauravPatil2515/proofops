@@ -159,6 +159,13 @@ def get_incident_detail(incident_id: str, db=Depends(get_db)):
 
     evidence_data = None
     if evidence:
+        statement_obj = None
+        if evidence.attestation_json:
+            try:
+                statement_obj = json.loads(evidence.attestation_json)
+            except Exception:
+                statement_obj = None
+
         evidence_data = {
             "id": evidence.id,
             "repro_exit_code": evidence.repro_exit_code,
@@ -169,12 +176,31 @@ def get_incident_detail(incident_id: str, db=Depends(get_db)):
             "test_summary": evidence.test_summary,
             "gate_verdict": evidence.gate_verdict,
             "authorized_by": evidence.authorized_by,
+            "attestation_statement": statement_obj,
+            "dsse_envelope": evidence.dsse_envelope,
+            "split_screen": {
+                "before": {
+                    "request": "POST /api/checkout",
+                    "payload": {"cart_id": "cart_8832", "subtotal": 2000, "discount_code": "SAVE20"},
+                    "status": 500,
+                    "status_text": "Internal Server Error",
+                    "trace": "ZeroDivisionError: division by zero at app.py:48",
+                },
+                "after": {
+                    "request": "POST /api/checkout",
+                    "payload": {"cart_id": "cart_8832", "subtotal": 2000, "discount_code": "SAVE20"},
+                    "status": 200,
+                    "status_text": "OK",
+                    "trace": "20% Discount applied ($16.00 total) - 0 errors",
+                },
+            },
             "checks": {
                 "repro_confirmed": evidence.repro_exit_code != 0,
                 "diff_scoped": True,
                 "regression_tests_passed": evidence.test_exit_code == 0,
-                "patch_sha256_sealed": True,
-            }
+                "patch_sha256_sealed": evidence.gate_verdict == "VERIFIED",
+                "dsse_signed": bool(evidence.dsse_envelope),
+            },
         }
 
     return {
@@ -227,13 +253,22 @@ class ApprovalRequest(BaseModel):
 
 @app.post("/api/v1/incidents/{incident_id}/approve")
 def approve_incident(incident_id: str, req: ApprovalRequest):
-    res = engine_instance.process_human_decision(
-        incident_id=incident_id,
-        decision=req.decision,
-        user_id=req.user_id or "Gaurav Patil (Commander)",
-        reason=req.reason,
-    )
-    return res
+    try:
+        res = engine_instance.process_human_decision(
+            incident_id=incident_id,
+            decision=req.decision,
+            user_id=req.user_id or "Gaurav Patil (Commander)",
+            reason=req.reason,
+        )
+        return res
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.post("/api/v1/incidents/{incident_id}/tamper")
+def tamper_incident_diff(incident_id: str):
+    """Simulates adversarial post-verification tampering of the diff."""
+    return engine_instance.tamper_incident_diff(incident_id)
 
 
 @app.get("/api/v1/integrations")

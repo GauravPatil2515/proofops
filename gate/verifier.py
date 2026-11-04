@@ -2,7 +2,8 @@
 
 Enforces that incident resolution in Switch multi-agent rooms requires
 verifiable cryptographic and runtime execution evidence. Prevents hallucinated
-task completion by requiring passing test logs, scoped diffs, and reproducible traces.
+task completion by requiring passing test logs, scoped diffs, reproducible traces,
+exact signature matches, and anti-masking policy gates.
 """
 from __future__ import annotations
 
@@ -33,6 +34,8 @@ class EvidenceBundle:
     gate_verdict: str
     authorized_by: str
     metadata: Dict[str, Any]
+    attestation_statement: Optional[Dict[str, Any]] = None
+    attestation_signature: Optional[str] = None
 
     def to_json(self, indent: int = 2) -> str:
         return json.dumps(asdict(self), indent=indent)
@@ -68,20 +71,47 @@ class EvidenceGate:
         authorized_by: str = "proofops-verifier",
         timeout_seconds: int = 10,
         allowed_path_prefix: Optional[str] = None,
+        expected_exception: Optional[str] = None,
+        expected_frame: Optional[str] = None,
     ) -> EvidenceBundle:
         """Executes the Evidence Gate verification workflow."""
         if not patch_diff or not patch_diff.strip():
             raise EvidenceGateError("Evidence Gate Rejected: No code patch diff provided.")
 
-        # Check Diff Boundary Scope
-        if allowed_path_prefix:
-            for line in patch_diff.splitlines():
-                if line.startswith("--- a/") or line.startswith("+++ b/"):
-                    target_file = line[6:].strip()
-                    if not target_file.startswith(allowed_path_prefix):
-                        raise EvidenceGateError(
-                            f"Evidence Gate Rejected: Diff touches out-of-scope file '{target_file}' (Allowed prefix: '{allowed_path_prefix}')."
-                        )
+        # ── POLICY CHECK 1: File Boundary & Disallowed Paths ─────────────────
+        touched_files: List[str] = []
+        for line in patch_diff.splitlines():
+            if line.startswith("--- a/") or line.startswith("+++ b/"):
+                target_file = line[6:].strip()
+                if target_file not in touched_files:
+                    touched_files.append(target_file)
+
+                # Hard prohibition: Fixer cannot touch test suites or reproduction scripts
+                if "tests/" in target_file or "repro_script" in target_file or ".env" in target_file:
+                    raise EvidenceGateError(
+                        f"Policy Gate Violation: Patch diff cannot modify test suite, reproduction harness, or secrets: '{target_file}'."
+                    )
+
+                if allowed_path_prefix and not target_file.startswith(allowed_path_prefix):
+                    raise EvidenceGateError(
+                        f"Policy Gate Violation: Diff touches out-of-scope file '{target_file}' (Allowed prefix: '{allowed_path_prefix}')."
+                    )
+
+        # ── POLICY CHECK 2: Anti-Masking Audit (No Bare Excepts / Return 200) ─
+        added_lines = [
+            l[1:].strip()
+            for l in patch_diff.splitlines()
+            if l.startswith("+") and not l.startswith("+++")
+        ]
+        for line in added_lines:
+            if line in ("except:", "except Exception:", "except BaseException:"):
+                raise EvidenceGateError(
+                    f"Policy Gate Violation: Detected symptom-masking bare except pattern in patch diff: '{line}'."
+                )
+            if "except" in line and ("pass" in line or "return 200" in line):
+                raise EvidenceGateError(
+                    f"Policy Gate Violation: Detected symptom-masking exception suppression in patch diff: '{line}'."
+                )
 
         # Compute SHA-256 of the patch diff
         diff_sha256 = hashlib.sha256(patch_diff.encode("utf-8")).hexdigest()
@@ -111,6 +141,23 @@ class EvidenceGate:
 
         repro_exit = repro_proc.returncode
         repro_output = (repro_proc.stdout + "\n" + repro_proc.stderr).strip()
+
+        # ── VERIFY REPRODUCTION SIGNATURE MATCH ──────────────────────────────
+        if expected_exception:
+            if expected_exception not in repro_output:
+                raise EvidenceGateError(
+                    f"Signature Mismatch: Repro failed with wrong exception.\n"
+                    f"Expected: '{expected_exception}'\n"
+                    f"Captured Trace:\n{repro_output[:400]}"
+                )
+
+        if expected_frame:
+            if expected_frame not in repro_output:
+                raise EvidenceGateError(
+                    f"Signature Mismatch: Repro failed at wrong code frame.\n"
+                    f"Expected Frame: '{expected_frame}'\n"
+                    f"Captured Trace:\n{repro_output[:400]}"
+                )
 
         # Step 2: Execute Test Suite (Pytest)
         try:
@@ -151,8 +198,10 @@ class EvidenceGate:
             authorized_by=authorized_by,
             metadata={
                 "environment": "staging-isolation-pod",
-                "switch_room": "incident-checkout-500",
-                "gate_version": "1.0.0",
+                "switch_room": f"incident-{self.incident_id.lower()}",
+                "gate_version": "2.0.0",
+                "touched_files": touched_files,
+                "signature_verified": bool(expected_exception or expected_frame),
             },
         )
 
@@ -168,4 +217,3 @@ class EvidenceGate:
                 f"Actual:   {current_hash}"
             )
         return True
-
