@@ -12,43 +12,9 @@ import json
 import os
 import subprocess
 import time
-from dataclasses import asdict, dataclass
 from typing import Any, Dict, List, Optional
 
-
-class EvidenceGateError(Exception):
-    """Raised when an incident closure fails the Evidence Gate."""
-
-
-@dataclass
-class EvidenceBundle:
-    incident_id: str
-    timestamp: float
-    service_name: str
-    repro_exit_code: int
-    repro_trace: str
-    patch_diff: str
-    patch_sha256: str
-    test_suite_exit_code: int
-    test_suite_summary: str
-    gate_verdict: str
-    authorized_by: str
-    metadata: Dict[str, Any]
-    attestation_statement: Optional[Dict[str, Any]] = None
-    attestation_signature: Optional[str] = None
-
-    def to_json(self, indent: int = 2) -> str:
-        return json.dumps(asdict(self), indent=indent)
-
-    def verify_integrity(self) -> bool:
-        """Verifies that the patch hash matches the diff content."""
-        computed_hash = hashlib.sha256(self.patch_diff.encode("utf-8")).hexdigest()
-        return (
-            computed_hash == self.patch_sha256
-            and self.repro_exit_code != 0
-            and self.test_suite_exit_code == 0
-            and self.gate_verdict == "VERIFIED"
-        )
+from verification.evidence import EvidenceBundle, EvidenceGateError
 
 
 class EvidenceGate:
@@ -64,6 +30,13 @@ class EvidenceGate:
         self.service_dir = service_dir
         self.python_bin = python_bin
 
+    def _base_env(self, bug_active: Optional[bool] = None) -> Dict[str, str]:
+        """Build subprocess environment with optional bug toggle."""
+        env = os.environ.copy()
+        if bug_active is not None:
+            env["PROOFOPS_BUG_ACTIVE"] = "true" if bug_active else "false"
+        return env
+
     def verify_evidence(
         self,
         repro_script_path: str,
@@ -73,6 +46,8 @@ class EvidenceGate:
         allowed_path_prefix: Optional[str] = None,
         expected_exception: Optional[str] = None,
         expected_frame: Optional[str] = None,
+        bug_active_repro: bool = True,
+        bug_active_test: bool = False,
     ) -> EvidenceBundle:
         """Executes the Evidence Gate verification workflow."""
         if not patch_diff or not patch_diff.strip():
@@ -132,7 +107,7 @@ class EvidenceGate:
                 capture_output=True,
                 text=True,
                 timeout=timeout_seconds,
-                env=os.environ.copy(),
+                env=self._base_env(bug_active_repro),
             )
         except subprocess.TimeoutExpired:
             raise EvidenceGateError(
@@ -167,7 +142,7 @@ class EvidenceGate:
                 capture_output=True,
                 text=True,
                 timeout=timeout_seconds,
-                env=os.environ.copy(),
+                env=self._base_env(bug_active_test),
             )
         except subprocess.TimeoutExpired:
             raise EvidenceGateError(
@@ -186,14 +161,14 @@ class EvidenceGate:
 
         bundle = EvidenceBundle(
             incident_id=self.incident_id,
-            timestamp=time.time(),
             service_name=self.service_name,
+            timestamp=time.time(),
             repro_exit_code=repro_exit,
             repro_trace=repro_output,
             patch_diff=patch_diff,
             patch_sha256=diff_sha256,
-            test_suite_exit_code=test_exit,
-            test_suite_summary=test_output[-400:],
+            test_exit_code=test_exit,
+            test_summary=test_output[-400:],
             gate_verdict="VERIFIED",
             authorized_by=authorized_by,
             metadata={
@@ -202,6 +177,13 @@ class EvidenceGate:
                 "gate_version": "2.0.0",
                 "touched_files": touched_files,
                 "signature_verified": bool(expected_exception or expected_frame),
+            },
+            checks={
+                "repro_confirmed": repro_exit != 0,
+                "diff_scoped": True,
+                "regression_tests_passed": test_exit == 0,
+                "patch_sha256_sealed": True,
+                "dsse_signed": False,  # DSSE is added later by workflow engine
             },
         )
 

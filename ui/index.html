@@ -68,7 +68,11 @@
         <span style="color: var(--ink-faint);">/</span>
         <span id="topbar-subtitle" style="font-size: 13px; font-weight: 400;">Acme Production</span>
       </div>
-      <div class="topbar-actions">
+      <div class="topbar-actions" style="display: flex; align-items: center; gap: 16px;">
+        <div id="switch-mode-indicator" style="display: flex; align-items: center; gap: 6px; padding: 4px 10px; border-radius: var(--radius-sm); background: var(--surface-muted); font-size: 11px;">
+          <span class="dot" style="background: var(--status-amber);"></span>
+          <span style="font-weight: 600; font-family: var(--font-mono);">🟡 Standalone Replay</span>
+        </div>
         <button class="btn btn-primary" onclick="launchDemoIncident()" id="btn-launch-demo">
           ⚡ Launch Demo Incident (PO-1042)
         </button>

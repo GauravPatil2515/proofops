@@ -19,7 +19,6 @@ BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, BASE_DIR)
 
 from gate.verifier import EvidenceGate
-from services.checkout_api.app import set_bug_active
 
 console = Console()
 
@@ -76,11 +75,10 @@ def main():
     render_message("proofops-triager", "Triage Agent", triager_msg, border_style="blue")
 
     # Run actual reproduction script
-    set_bug_active(True)
-    repro_path = os.path.join(BASE_DIR, "services", "checkout-api", "repro_script.py")
+    repro_path = os.path.join(BASE_DIR, "services", "checkout_api", "repro_script.py")
     
     repro_start_msg = (
-        "Running isolated reproduction test script `services/checkout-api/repro_script.py`...\n"
+        "Running isolated reproduction test script `services/checkout_api/repro_script.py`...\n"
         "Payload: cart_id='cart_repro_500', discount_code='SAVE20'."
     )
     render_message("proofops-repro", "ReproLab Agent", repro_start_msg, border_style="magenta")
@@ -100,8 +98,8 @@ def main():
     render_message("proofops-repro", "ReproLab Agent", repro_confirmed_msg, border_style="magenta")
 
     # Fix Agent drafts surgical patch
-    patch_diff = """--- a/services/checkout-api/app.py
-+++ b/services/checkout-api/app.py
+    patch_diff = """--- a/services/checkout_api/app.py
++++ b/services/checkout_api/app.py
 @@ -44,8 +44,3 @@
          rate = DISCOUNT_RULES[code]
 -        if BUG_ACTIVE:
@@ -131,10 +129,7 @@ def main():
     console.print("[dim cyan]>>> Running Evidence Gate verification suite against patched service...[/dim cyan]")
     time.sleep(1.0)
 
-    # Apply fix to service
-    set_bug_active(False)
-
-    service_dir = os.path.join(BASE_DIR, "services", "checkout-api")
+    service_dir = os.path.join(BASE_DIR, "services", "checkout_api")
     gate = EvidenceGate(
         incident_id="INC-10842",
         service_name="checkout-api",
@@ -146,6 +141,8 @@ def main():
         repro_script_path=repro_path,
         patch_diff=patch_diff,
         authorized_by="proofops-verifier",
+        bug_active_repro=True,
+        bug_active_test=False,
     )
 
     evidence_table = Table(title="🛡️ ProofOps Cryptographic Evidence Artifact", border_style="green")

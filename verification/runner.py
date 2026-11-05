@@ -5,7 +5,7 @@ import os
 import subprocess
 import time
 from typing import Any, Dict, List, Optional
-from verification.evidence import EvidenceBundle, EvidenceVerificationError
+from verification.evidence import EvidenceBundle, EvidenceGateError
 
 
 class IsolatedRunner:
@@ -13,11 +13,18 @@ class IsolatedRunner:
         self.service_dir = service_dir
         self.python_bin = python_bin
 
-    def run_reproduction(self, repro_script_name: str = "repro_script.py") -> Dict[str, Any]:
+    def _base_env(self, bug_active: Optional[bool] = None) -> Dict[str, str]:
+        """Build subprocess environment with optional bug toggle."""
+        env = os.environ.copy()
+        if bug_active is not None:
+            env["PROOFOPS_BUG_ACTIVE"] = "true" if bug_active else "false"
+        return env
+
+    def run_reproduction(self, repro_script_name: str = "repro_script.py", bug_active: bool = True) -> Dict[str, Any]:
         """Runs the reproduction script to capture defect reproduction."""
         repro_path = os.path.join(self.service_dir, repro_script_name)
         if not os.path.exists(repro_path):
-            raise EvidenceVerificationError(f"Reproduction script not found: {repro_path}")
+            raise EvidenceGateError(f"Reproduction script not found: {repro_path}")
 
         start_time = time.time()
         proc = subprocess.run(
@@ -25,7 +32,7 @@ class IsolatedRunner:
             cwd=self.service_dir,
             capture_output=True,
             text=True,
-            env=os.environ.copy(),
+            env=self._base_env(bug_active),
         )
         duration = time.time() - start_time
         output = (proc.stdout + "\n" + proc.stderr).strip()
@@ -37,7 +44,7 @@ class IsolatedRunner:
             "reproduced": proc.returncode != 0,
         }
 
-    def run_regression_suite(self, test_dir: str = "tests/") -> Dict[str, Any]:
+    def run_regression_suite(self, test_dir: str = "tests/", bug_active: bool = False) -> Dict[str, Any]:
         """Runs the pytest regression suite against the patched service."""
         start_time = time.time()
         proc = subprocess.run(
@@ -45,7 +52,7 @@ class IsolatedRunner:
             cwd=self.service_dir,
             capture_output=True,
             text=True,
-            env=os.environ.copy(),
+            env=self._base_env(bug_active),
         )
         duration = time.time() - start_time
         output = (proc.stdout + "\n" + proc.stderr).strip()
@@ -60,13 +67,13 @@ class IsolatedRunner:
     def audit_diff_scope(self, patch_diff: str, allowed_paths: Optional[List[str]] = None) -> bool:
         """Audits that the patch diff does not touch unauthorized files or configs."""
         if not patch_diff or not patch_diff.strip():
-            raise EvidenceVerificationError("Patch diff is empty")
+            raise EvidenceGateError("Patch diff is empty")
 
         forbidden_patterns = [".env", "credentials", "id_rsa", "docker-compose", "k8s", "deploy.yaml"]
         for line in patch_diff.splitlines():
             if line.startswith("+++") or line.startswith("---"):
                 for forbidden in forbidden_patterns:
                     if forbidden in line:
-                        raise EvidenceVerificationError(f"Diff scope violation: unauthorized file modification: {line}")
+                        raise EvidenceGateError(f"Diff scope violation: unauthorized file modification: {line}")
         return True
 

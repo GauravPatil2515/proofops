@@ -22,7 +22,7 @@ class IncidentEngine:
     def __init__(self, switch_adapter: Optional[SwitchAdapter] = None):
         self.switch = switch_adapter or SwitchAdapter()
         self.base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        self.service_dir = os.path.join(self.base_dir, "services", "checkout-api")
+        self.service_dir = os.path.join(self.base_dir, "services", "checkout_api")
         self.signer = AttestationSigner()
         self.fuzzer = InputPerturbationEngine(iterations=25)
 
@@ -92,9 +92,8 @@ class IncidentEngine:
             db.commit()
             runner = IsolatedRunner(self.service_dir, sys.executable)
             
-            # Ensure bug is active to prove reproduction
-            os.environ["PROOFOPS_BUG_ACTIVE"] = "true"
-            repro_res = runner.run_reproduction("repro_script.py")
+            # Ensure bug is active to prove reproduction - pass via subprocess env
+            repro_res = runner.run_reproduction("repro_script.py", bug_active=True)
 
             # ── SIGNATURE MATCH CHECK ─────────────────────────────────────────
             expected_exception = "ZeroDivisionError"
@@ -113,8 +112,8 @@ class IncidentEngine:
             # 4. Fixing Phase
             incident.status = IncidentState.FIXING.value
             db.commit()
-            patch_diff = """--- a/services/checkout-api/app.py
-+++ b/services/checkout-api/app.py
+            patch_diff = """--- a/services/checkout_api/app.py
++++ b/services/checkout_api/app.py
 @@ -44,3 +44,3 @@
 -        tier_divisor = len(code) - 6
 -        discount = int(subtotal * (rate / tier_divisor))
@@ -139,9 +138,8 @@ class IncidentEngine:
             incident.status = IncidentState.VERIFYING.value
             db.commit()
 
-            # Run regression tests against fixed code
-            os.environ["PROOFOPS_BUG_ACTIVE"] = "false"
-            test_res = runner.run_regression_suite("tests/")
+            # Run regression tests against fixed code (bug_active=False)
+            test_res = runner.run_regression_suite("tests/", bug_active=False)
 
             if not test_res["passed"]:
                 incident.status = IncidentState.BLOCKED.value
@@ -218,6 +216,7 @@ class IncidentEngine:
         
         Flips 1 byte in the patch diff, triggers cryptographic alarm,
         and invalidates the in-toto DSSE signature and approval state.
+        Preserves original sealed evidence while recording tamper attempt.
         """
         db = SessionLocal()
         try:
@@ -231,6 +230,7 @@ class IncidentEngine:
 
             # Flip 1 byte in patch diff: change discount calculation to inject a backdoor
             original_diff = evidence.patch_diff
+            original_hash = evidence.patch_sha256
             tampered_diff = original_diff.replace(
                 "discount = int(subtotal * rate)",
                 "discount = int(subtotal * rate) + 1  # TAMPERED",
@@ -241,9 +241,11 @@ class IncidentEngine:
             pub_key_pem = self.signer.get_public_key_pem()
             dsse_valid_before = AttestationSigner.verify_dsse(evidence.dsse_envelope, pub_key_pem) if evidence.dsse_envelope else False
 
-            # Invalidate approval and update evidence record with tampered diff
-            evidence.patch_diff = tampered_diff
-            evidence.patch_sha256 = tampered_hash
+            # Preserve original sealed evidence, store tampered data in new columns
+            evidence.tampered_diff = tampered_diff
+            evidence.tampered_sha256 = tampered_hash
+            evidence.tamper_detected = True
+            evidence.tamper_timestamp = time.time()
             evidence.gate_verdict = "TAMPERED"
 
             # Transition incident to blocked
@@ -256,7 +258,7 @@ class IncidentEngine:
                 event_type="diff_tamper_detected",
                 description=f"CRITICAL: 1-byte diff tampering detected. SHA-256 mismatch! Expected seal broken. Deployment locked.",
                 payload={
-                    "original_hash": evidence.patch_sha256,
+                    "original_hash": original_hash,
                     "tampered_hash": tampered_hash,
                     "signature_verified": False,
                 },
@@ -269,7 +271,7 @@ class IncidentEngine:
                 "status": "BLOCKED",
                 "verdict": "INTEGRITY_VIOLATION",
                 "message": "Cryptographic seal broken: 1-byte tampering detected. Deploy button disabled.",
-                "original_diff_hash": evidence.patch_sha256,
+                "original_diff_hash": original_hash,
                 "tampered_diff_hash": tampered_hash,
                 "dsse_signature_valid": False,
             }
@@ -310,7 +312,6 @@ class IncidentEngine:
             if decision == "approved":
                 incident.status = IncidentState.RESOLVED.value
                 incident.resolved_at = time.time()
-                os.environ["PROOFOPS_BUG_ACTIVE"] = "false"
             else:
                 incident.status = IncidentState.REJECTED.value
 

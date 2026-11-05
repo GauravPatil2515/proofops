@@ -1,6 +1,7 @@
 """ProofOps Unified Server & REST API."""
 from __future__ import annotations
 
+import json
 import os
 import sys
 import time
@@ -269,6 +270,77 @@ def approve_incident(incident_id: str, req: ApprovalRequest):
 def tamper_incident_diff(incident_id: str):
     """Simulates adversarial post-verification tampering of the diff."""
     return engine_instance.tamper_incident_diff(incident_id)
+
+
+@app.post("/api/v1/incidents/{incident_id}/rerun")
+async def rerun_investigation(incident_id: str, db=Depends(get_db)):
+    """Resets and re-runs the multi-agent investigation pipeline for an incident."""
+    incident = db.query(Incident).filter(Incident.id == incident_id).first()
+    if not incident:
+        raise HTTPException(status_code=404, detail="Incident not found")
+
+    # Prevent concurrent reruns
+    if incident.status in ("reproducing", "fixing", "verifying", "investigating"):
+        raise HTTPException(status_code=409, detail="Investigation already in progress")
+
+    # Reset incident state
+    incident.status = "investigating"
+    incident.resolved_at = None
+    db.commit()
+
+    # Re-run pipeline
+    res = await engine_instance.run_investigation_pipeline(incident_id)
+    return {"status": "success", "incident_id": incident_id, "pipeline": res}
+
+
+@app.get("/api/v1/incidents/{incident_id}/evidence")
+def get_incident_evidence(incident_id: str, db=Depends(get_db)):
+    """Returns the evidence bundle for an incident."""
+    evidence = db.query(Evidence).filter(Evidence.incident_id == incident_id).order_by(Evidence.created_at.desc()).first()
+    if not evidence:
+        raise HTTPException(status_code=404, detail="Evidence not found")
+
+    statement_obj = None
+    if evidence.attestation_json:
+        try:
+            statement_obj = json.loads(evidence.attestation_json)
+        except Exception:
+            statement_obj = None
+
+    return {
+        "id": evidence.id,
+        "incident_id": evidence.incident_id,
+        "repro_exit_code": evidence.repro_exit_code,
+        "repro_trace": evidence.repro_trace,
+        "patch_diff": evidence.patch_diff,
+        "patch_sha256": evidence.patch_sha256,
+        "test_exit_code": evidence.test_exit_code,
+        "test_summary": evidence.test_summary,
+        "gate_verdict": evidence.gate_verdict,
+        "authorized_by": evidence.authorized_by,
+        "attestation_statement": statement_obj,
+        "dsse_envelope": evidence.dsse_envelope,
+        "tampered_diff": getattr(evidence, 'tampered_diff', None),
+        "tampered_sha256": getattr(evidence, 'tampered_sha256', None),
+        "tamper_detected": getattr(evidence, 'tamper_detected', False),
+        "tamper_timestamp": getattr(evidence, 'tamper_timestamp', None),
+        "created_at": evidence.created_at,
+    }
+
+
+@app.get("/api/v1/system/mode")
+def get_system_mode():
+    """Returns the current Switch gateway connection mode."""
+    import asyncio
+    from integrations.switch_adapter import SwitchAdapter
+    adapter = SwitchAdapter()
+    health = asyncio.run(adapter.health_check())
+    return {
+        "switch_mode": health.get("mode", "unknown"),
+        "base_url": health.get("base_url", ""),
+        "status": health.get("status", "unknown"),
+        "note": health.get("note", ""),
+    }
 
 
 @app.get("/api/v1/integrations")

@@ -20,6 +20,36 @@ function toggleDarkMode() {
   document.getElementById('theme-label').textContent = isDark ? 'Light Mode' : 'Dark Mode';
 }
 
+// System Mode Indicator (Switch Gateway Connection)
+async function fetchAndRenderSystemMode() {
+  try {
+    const res = await fetchAPI('/api/v1/system/mode');
+    if (res) {
+      const modeEl = document.getElementById('switch-mode-indicator');
+      if (modeEl) {
+        const isLive = res.switch_mode === 'live';
+        modeEl.innerHTML = `
+          <span class="dot" style="background: ${isLive ? 'var(--status-emerald)' : 'var(--status-amber)'};"></span>
+          <span style="font-size: 11px; font-weight: 600; font-family: var(--font-mono);">
+            ${isLive ? '🟢 Live' : '🟡 Standalone Replay'}
+          </span>
+          <span style="font-size: 10px; color: var(--ink-muted); margin-left: 6px;">${res.base_url || ''}</span>
+        `;
+        modeEl.title = res.note || '';
+      }
+    }
+  } catch (e) {
+    console.warn('Failed to fetch system mode:', e);
+  }
+}
+
+// Initialize system mode polling
+function initSystemMode() {
+  fetchAndRenderSystemMode();
+  // Refresh every 30 seconds
+  setInterval(fetchAndRenderSystemMode, 30000);
+}
+
 // Navigation Controller
 function navigate(view, incidentId = null) {
   currentView = view;
@@ -501,6 +531,190 @@ async function renderApprovals(container) {
   `;
 }
 
+// ── Incidents List View ────────────────────────────────────────────────────────
+async function renderIncidentsList(container) {
+  const incidents = await fetchAPI('/api/v1/incidents') || [];
+  
+  container.innerHTML = `
+    <div style="margin-bottom: 24px;">
+      <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 16px;">
+        <div>
+          <h1 style="font-size: 20px; font-weight: 700;">All Incidents</h1>
+          <p style="font-size: 13px; color: var(--ink-muted);">Complete incident history with evidence-gated verification status.</p>
+        </div>
+        <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+          <button class="btn btn-secondary" onclick="filterIncidents('all')" id="filter-all">All</button>
+          <button class="btn btn-secondary" onclick="filterIncidents('open')" id="filter-open">Open</button>
+          <button class="btn btn-secondary" onclick="filterIncidents('blocked')" id="filter-blocked">Blocked</button>
+          <button class="btn btn-secondary" onclick="filterIncidents('resolved')" id="filter-resolved">Resolved</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="card" id="incidents-table-container">
+      ${renderIncidentsTable(incidents, 'all')}
+    </div>
+  `;
+  
+  // Initialize filter state
+  window.currentIncidentFilter = 'all';
+}
+
+function renderIncidentsTable(incidents, filter) {
+  const filtered = filter === 'all' 
+    ? incidents 
+    : incidents.filter(i => {
+        if (filter === 'open') return !['resolved', 'rejected'].includes(i.status);
+        if (filter === 'blocked') return i.status === 'blocked';
+        if (filter === 'resolved') return i.status === 'resolved';
+        return true;
+      });
+  
+  if (filtered.length === 0) {
+    return `
+      <div style="padding: 48px; text-align: center; color: var(--ink-muted);">
+        No incidents found${filter !== 'all' ? ` with filter "${filter}"` : ''}.
+      </div>
+    `;
+  }
+  
+  return `
+    <div style="overflow-x: auto;">
+      <table style="width: 100%; border-collapse: collapse; text-align: left; font-size: 13px;">
+        <thead>
+          <tr style="border-bottom: 1px solid var(--border-hairline); color: var(--ink-muted);">
+            <th style="padding: 10px 12px;">ID</th>
+            <th style="padding: 10px 12px;">Title</th>
+            <th style="padding: 10px 12px;">Service</th>
+            <th style="padding: 10px 12px;">Severity</th>
+            <th style="padding: 10px 12px;">Status</th>
+            <th style="padding: 10px 12px;">Created</th>
+            <th style="padding: 10px 12px;">Action</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${filtered.map(inc => `
+            <tr style="border-bottom: 1px solid var(--border-hairline);">
+              <td style="padding: 12px; font-family: var(--font-mono); font-weight: 700;">${inc.id}</td>
+              <td style="padding: 12px; font-weight: 600;">${inc.title}</td>
+              <td style="padding: 12px; font-family: var(--font-mono);">${inc.service}</td>
+              <td style="padding: 12px;">
+                <span class="badge badge-${inc.severity === 'high' ? 'crimson' : 'amber'}">${inc.severity}</span>
+              </td>
+              <td style="padding: 12px;">
+                <span class="badge badge-${getStatusBadgeClass(inc.status)}"><span class="dot"></span> ${inc.status.replace('_', ' ')}</span>
+              </td>
+              <td style="padding: 12px; font-family: var(--font-mono); font-size: 11px;">${new Date(inc.created_at * 1000).toLocaleString()}</td>
+              <td style="padding: 12px;">
+                <button class="btn btn-secondary" style="padding: 4px 10px; font-size: 12px;" onclick="navigate('incident-detail', '${inc.id}')">View Evidence</button>
+              </td>
+            </tr>
+          `).join('')}
+        </tbody>
+      </table>
+    </div>
+  `;
+}
+
+function filterIncidents(filter) {
+  window.currentIncidentFilter = filter;
+  
+  // Update active button
+  ['all', 'open', 'blocked', 'resolved'].forEach(f => {
+    const btn = document.getElementById(`filter-${f}`);
+    if (btn) btn.classList.toggle('active', f === filter);
+  });
+  
+  // Re-render table
+  fetchAPI('/api/v1/incidents').then(incidents => {
+    const container = document.getElementById('incidents-table-container');
+    if (container) {
+      container.innerHTML = renderIncidentsTable(incidents || [], filter);
+    }
+  });
+}
+
+async function reRunInvestigation(incidentId) {
+  // Show confirmation with loading state
+  const confirmed = confirm(`Re-run the multi-agent investigation pipeline for ${incidentId}? This will reset the incident and regenerate all evidence.`);
+  if (!confirmed) return;
+  
+  // Find and disable the button
+  const buttons = document.querySelectorAll(`button[onclick*="reRunInvestigation('${incidentId}')"], button[onclick*='reRunInvestigation("${incidentId}")']`);
+  buttons.forEach(btn => {
+    btn.disabled = true;
+    btn.textContent = '⏳ Re-running...';
+  });
+  
+  try {
+    const res = await fetchAPI(`/api/v1/incidents/${incidentId}/rerun`, { method: 'POST' });
+    if (res) {
+      // Show success toast
+      showToast('Investigation pipeline re-run complete. Evidence regenerated.', 'success');
+      // Refresh the current view
+      if (currentView === 'incident-detail' && activeIncidentId === incidentId) {
+        renderIncidentDetail(document.getElementById('view-container'));
+      } else if (currentView === 'incidents') {
+        renderIncidentsList(document.getElementById('view-container'));
+      }
+    }
+  } catch (err) {
+    console.error('Rerun failed:', err);
+    showToast('Failed to re-run investigation: ' + err.message, 'error');
+  } finally {
+    // Re-enable buttons
+    buttons.forEach(btn => {
+      btn.disabled = false;
+      btn.textContent = btn.textContent.includes('Reset') ? '🔄 Reset & Re-run' : '🔄 Re-run Pipeline';
+    });
+  }
+}
+
+function showToast(message, type = 'info') {
+  // Remove existing toast
+  const existing = document.getElementById('proofops-toast');
+  if (existing) existing.remove();
+  
+  const toast = document.createElement('div');
+  toast.id = 'proofops-toast';
+  const bgColor = type === 'success' ? 'var(--status-emerald)' : type === 'error' ? 'var(--status-crimson)' : 'var(--accent-flame)';
+  toast.style.cssText = `
+    position: fixed;
+    bottom: 24px;
+    right: 24px;
+    background: ${bgColor};
+    color: white;
+    padding: 12px 20px;
+    border-radius: var(--radius-sm);
+    font-size: 13px;
+    font-weight: 500;
+    box-shadow: var(--shadow-lg);
+    z-index: 1000;
+    animation: slideIn 0.3s ease;
+  `;
+  toast.textContent = message;
+  document.body.appendChild(toast);
+  
+  setTimeout(() => {
+    toast.style.animation = 'slideOut 0.3s ease';
+    setTimeout(() => toast.remove(), 300);
+  }, 3000);
+}
+
+// Add toast animation styles
+const style = document.createElement('style');
+style.textContent = `
+  @keyframes slideIn {
+    from { transform: translateX(100%); opacity: 0; }
+    to { transform: translateX(0); opacity: 1; }
+  }
+  @keyframes slideOut {
+    from { transform: translateX(0); opacity: 1; }
+    to { transform: translateX(100%); opacity: 0; }
+  }
+`;
+document.head.appendChild(style);
+
 // ── 5. Agent Teams View (Switch Template Issue #1095) ────────────────────────
 function renderTeams(container) {
   container.innerHTML = `
@@ -578,6 +792,7 @@ function renderSettings(container) {
 // Initial boot
 window.addEventListener('DOMContentLoaded', () => {
   initTheme();
+  initSystemMode();
   renderView();
 });
 

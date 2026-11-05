@@ -1,0 +1,37 @@
+[project]
+name = "proofops"
+version = "1.0.0"
+description = "ProofOps: Evidence-Gated Incident Management for Autonomous AI Agents"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi>=0.115.0",
+    "uvicorn[standard]>=0.32.0",
+    "pydantic>=2.9.0",
+    "sqlalchemy>=2.0.35",
+    "cryptography>=43.0.0",
+    "httpx>=0.27.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.3.0",
+    "rich>=13.9.0",
+    "hypothesis>=6.115.0",
+]
+
+[project.scripts]
+proofops-server = "server:main"
+proofops-gate = "gate.cli:main"
+proofops-benchmark = "benchmarks.agent_chaos:main"
+proofops-sim = "simulations.run_incident_sim:main"
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["services/checkout_api/tests", "verification"]
+python_files = ["test_*.py", "*_test.py"]
+python_functions = ["test_*"]
+
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"

@@ -46,10 +46,15 @@ class Evidence(Base):
     patch_sha256 = Column(String(64), nullable=False)
     test_exit_code = Column(Integer, nullable=False)
     test_summary = Column(Text, nullable=True)
-    gate_verdict = Column(String(32), nullable=False)  # VERIFIED, REJECTED
+    gate_verdict = Column(String(32), nullable=False)  # VERIFIED, REJECTED, TAMPERED
     authorized_by = Column(String(128), default="proofops-verifier")
     attestation_json = Column(Text, nullable=True)
     dsse_envelope = Column(JSON, nullable=True)
+    # Tamper tracking fields
+    tampered_diff = Column(Text, nullable=True)
+    tampered_sha256 = Column(String(64), nullable=True)
+    tamper_detected = Column(Boolean, default=False)
+    tamper_timestamp = Column(Float, nullable=True)
     created_at = Column(Float, default=time.time)
 
 

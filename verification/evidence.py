@@ -8,8 +8,8 @@ from dataclasses import asdict, dataclass
 from typing import Any, Dict, Optional
 
 
-class EvidenceVerificationError(Exception):
-    """Raised when evidence verification fails or preconditions are violated."""
+class EvidenceGateError(Exception):
+    """Raised when an incident closure fails the Evidence Gate."""
 
 
 @dataclass
@@ -23,10 +23,13 @@ class EvidenceBundle:
     patch_sha256: str
     test_exit_code: int
     test_summary: str
-    gate_verdict: str  # VERIFIED, REJECTED
+    gate_verdict: str  # VERIFIED, REJECTED, TAMPERED
     authorized_by: str
-    checks: Dict[str, bool]
     metadata: Dict[str, Any]
+    attestation_statement: Optional[Dict[str, Any]] = None
+    attestation_signature: Optional[str] = None
+    checks: Optional[Dict[str, bool]] = None
+    dsse_envelope: Optional[Dict[str, Any]] = None
 
     def to_dict(self) -> Dict[str, Any]:
         return asdict(self)

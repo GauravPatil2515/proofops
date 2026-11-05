@@ -19,6 +19,21 @@ from cryptography.hazmat.primitives import serialization
 KEY_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".keys")
 
 
+def _load_key_from_env() -> Optional[Tuple[ed25519.Ed25519PrivateKey, ed25519.Ed25519PublicKey]]:
+    """Load Ed25519 keypair from PROOFOPS_SIGNING_KEY environment variable if set."""
+    import base64
+    key_b64 = os.environ.get("PROOFOPS_SIGNING_KEY")
+    if not key_b64:
+        return None
+    try:
+        key_bytes = base64.b64decode(key_b64)
+        private_key = serialization.load_pem_private_key(key_bytes, password=None)
+        public_key = private_key.public_key()
+        return private_key, public_key
+    except Exception:
+        return None
+
+
 class AttestationSigner:
     """Manages Ed25519 keypair and DSSE signature generation."""
 
@@ -30,6 +45,12 @@ class AttestationSigner:
         self.private_key, self.public_key = self._load_or_generate_keys()
 
     def _load_or_generate_keys(self) -> Tuple[ed25519.Ed25519PrivateKey, ed25519.Ed25519PublicKey]:
+        # First, try to load from environment variable (for production/KMS)
+        env_keys = _load_key_from_env()
+        if env_keys:
+            return env_keys
+
+        # Then, try to load from local files (for development)
         if os.path.exists(self.priv_path) and os.path.exists(self.pub_path):
             with open(self.priv_path, "rb") as f:
                 private_key = serialization.load_pem_private_key(f.read(), password=None)
@@ -37,28 +58,29 @@ class AttestationSigner:
                 public_key = serialization.load_pem_public_key(f.read())
             return private_key, public_key  # type: ignore
 
-        # Generate new Ed25519 keypair
+        # Generate new Ed25519 keypair (dev fallback)
         private_key = ed25519.Ed25519PrivateKey.generate()
         public_key = private_key.public_key()
 
-        # Save private key
-        with open(self.priv_path, "wb") as f:
-            f.write(
-                private_key.private_bytes(
-                    encoding=serialization.Encoding.PEM,
-                    format=serialization.PrivateFormat.PKCS8,
-                    encryption_algorithm=serialization.NoEncryption(),
+        # Save private key (only if not in production mode)
+        if not os.environ.get("PROOFOPS_PRODUCTION"):
+            with open(self.priv_path, "wb") as f:
+                f.write(
+                    private_key.private_bytes(
+                        encoding=serialization.Encoding.PEM,
+                        format=serialization.PrivateFormat.PKCS8,
+                        encryption_algorithm=serialization.NoEncryption(),
+                    )
                 )
-            )
 
-        # Save public key
-        with open(self.pub_path, "wb") as f:
-            f.write(
-                public_key.public_bytes(
-                    encoding=serialization.Encoding.PEM,
-                    format=serialization.PublicFormat.SubjectPublicKeyInfo,
+            # Save public key
+            with open(self.pub_path, "wb") as f:
+                f.write(
+                    public_key.public_bytes(
+                        encoding=serialization.Encoding.PEM,
+                        format=serialization.PublicFormat.SubjectPublicKeyInfo,
+                    )
                 )
-            )
 
         return private_key, public_key
 

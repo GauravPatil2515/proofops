@@ -17,7 +17,7 @@ def main():
 
     verify_p = subparsers.add_parser("verify", help="Run evidence gate verification")
     verify_p.add_argument("--incident", required=True, help="Incident identifier (e.g. INC-4021)")
-    verify_p.add_argument("--service-dir", default="services/checkout-api", help="Path to target service")
+    verify_p.add_argument("--service-dir", default="services/checkout_api", help="Path to target service")
     verify_p.add_argument("--repro-script", default="repro_script.py", help="Reproduction script filename")
     verify_p.add_argument("--diff-file", required=True, help="Path to patch diff file")
     verify_p.add_argument("--output", default="evidence-bundle.json", help="Path to save bundle")
@@ -56,7 +56,7 @@ def main():
             table.add_row("Incident ID", bundle.incident_id)
             table.add_row("Gate Verdict", f"[bold green]{bundle.gate_verdict}[/bold green]")
             table.add_row("Patch SHA-256", bundle.patch_sha256[:16] + "...")
-            table.add_row("Test Suite Exit Code", str(bundle.test_suite_exit_code))
+            table.add_row("Test Suite Exit Code", str(bundle.test_exit_code))
             table.add_row("Evidence Artifact", args.output)
 
             console.print(table)

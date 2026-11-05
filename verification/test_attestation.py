@@ -14,7 +14,7 @@ def test_attestation_lifecycle_and_dsse_verification():
         incident_id="PO-TEST-1",
         service_name="checkout-api",
         patch_diff=diff,
-        repro_script_path="services/checkout-api/repro_script.py",
+        repro_script_path="services/checkout_api/repro_script.py",
         repro_output="ZeroDivisionError reproduced",
         repro_exit_code=1,
         test_summary="3 passed in 0.05s",
