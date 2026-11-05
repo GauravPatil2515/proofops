@@ -3,21 +3,35 @@ let currentView = 'overview';
 let activeIncidentId = null;
 let activeTab = 'overview';
 
+// Expose functions to global scope for onclick handlers
+window.navigate = navigate;
+window.toggleDarkMode = toggleDarkMode;
+window.launchDemoIncident = launchDemoIncident;
+window.approveIncident = approveIncident;
+window.simulateTamper = simulateTamper;
+window.reRunInvestigation = reRunInvestigation;
+window.switchDetailTab = switchDetailTab;
+window.filterIncidents = filterIncidents;
+
 // Theme Management
 function initTheme() {
   const isDark = localStorage.getItem('proofops-theme') === 'dark';
   if (isDark) {
     document.documentElement.classList.add('dark');
-    document.getElementById('theme-icon').textContent = '☀️';
-    document.getElementById('theme-label').textContent = 'Light Mode';
+    const themeIcon = document.getElementById('theme-icon');
+    const themeLabel = document.getElementById('theme-label');
+    if (themeIcon) themeIcon.textContent = '☀️';
+    if (themeLabel) themeLabel.textContent = 'Light Mode';
   }
 }
 
 function toggleDarkMode() {
   const isDark = document.documentElement.classList.toggle('dark');
   localStorage.setItem('proofops-theme', isDark ? 'dark' : 'light');
-  document.getElementById('theme-icon').textContent = isDark ? '☀️' : '🌙';
-  document.getElementById('theme-label').textContent = isDark ? 'Light Mode' : 'Dark Mode';
+  const themeIcon = document.getElementById('theme-icon');
+  const themeLabel = document.getElementById('theme-label');
+  if (themeIcon) themeIcon.textContent = isDark ? '☀️' : '🌙';
+  if (themeLabel) themeLabel.textContent = isDark ? 'Light Mode' : 'Dark Mode';
 }
 
 // System Mode Indicator (Switch Gateway Connection)
@@ -790,8 +804,23 @@ function renderSettings(container) {
 
 // Initial boot
 window.addEventListener('DOMContentLoaded', () => {
-  initTheme();
-  initSystemMode();
-  renderView();
+  try {
+    initTheme();
+    initSystemMode();
+    renderView();
+    console.log('ProofOps UI initialized successfully');
+  } catch (err) {
+    console.error('ProofOps UI initialization failed:', err);
+  }
+});
+
+// Global error handler for debugging
+window.addEventListener('error', (event) => {
+  console.error('Global error:', event.message, 'at', event.filename, ':', event.lineno);
+});
+
+// Handle unhandled promise rejections
+window.addEventListener('unhandledrejection', (event) => {
+  console.error('Unhandled promise rejection:', event.reason);
 });
 
