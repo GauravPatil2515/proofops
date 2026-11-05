@@ -382,14 +382,23 @@ app.mount("/static", StaticFiles(directory=UI_DIR), name="static")
 
 @app.get("/")
 def serve_index():
-    return FileResponse(os.path.join(UI_DIR, "index.html"))
+    return FileResponse(
+        os.path.join(UI_DIR, "index.html"),
+        headers={"Cache-Control": "no-cache, no-store, must-revalidate", "Pragma": "no-cache", "Expires": "0"}
+    )
 
 @app.get("/{full_path:path}")
 def serve_catchall(full_path: str):
     file_path = os.path.join(UI_DIR, full_path)
     if os.path.exists(file_path) and os.path.isfile(file_path):
-        return FileResponse(file_path)
-    return FileResponse(os.path.join(UI_DIR, "index.html"))
+        return FileResponse(
+            file_path,
+            headers={"Cache-Control": "no-cache, no-store, must-revalidate", "Pragma": "no-cache", "Expires": "0"}
+        )
+    return FileResponse(
+        os.path.join(UI_DIR, "index.html"),
+        headers={"Cache-Control": "no-cache, no-store, must-revalidate", "Pragma": "no-cache", "Expires": "0"}
+    )
 
 
 if __name__ == "__main__":

@@ -417,7 +417,6 @@ function renderTabEvidence(evi, inc) {
     </div>
   `;
 }
-}
 
 function renderTabActivity(timeline) {
   return `
