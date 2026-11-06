@@ -149,12 +149,32 @@ python server.py
 
 ---
 
-## 8. Directory Structure
+## 8. Enterprise Console Architecture & Fused Evidence Workbench
+
+ProofOps features a dual-mode interface architecture:
+1. **Enterprise React 19 Console (`web/`):** A multi-page enterprise dashboard built with React 19, TypeScript, TailwindCSS, Radix UI primitives, Recharts, and Vite (fused from the production-hardened Proofline engine). It provides full visibility into:
+   - **Autonomous Incident Command:** Live Switch multi-agent conversation transcript, diff viewer, tamper attack simulator, and one-click PR approval.
+   - **Cryptographic Evidence Vault:** in-toto Statement v1 + DSSE Ed25519 signature envelopes, SHA-256 pre-images, and verification logs.
+   - **Verification Gates & Policy:** Real-time evaluation of AST anti-masking, empty-diff rejection, path scope boundaries, and invariant fuzzing.
+   - **Switch Mesh & Integrations:** Live connectivity to Switch Core (Slack/Teams/Discord), Sentry webhook ingestion, GitHub App, and PagerDuty.
+2. **Deterministic CLI & Headless Gates (`gate/cli.py`):** Standalone verification gate for CI/CD pipelines and headless git hooks.
+
+---
+
+## 9. Directory Structure
 
 ```
 proofops/
 ├── README.md                           # Documentation & system design
-├── server.py                           # FastAPI backend server with in-toto attestation verification
+├── server.py                           # FastAPI backend (incident lifecycle, DSSE verification, org APIs)
+├── web/                                # React 19 + TypeScript + Tailwind Enterprise UI (fused from Proofline)
+│   ├── src/
+│   │   ├── components/                 # Radix UI primitives, Topbar, Sidebar, IncidentCommandCenter
+│   │   ├── pages/                      # Overview, Evidence Vault, Security Checks, Rules Catalog, Demo
+│   │   ├── lib/                        # API clients, TanStack Query hooks, formatting utils
+│   │   └── types/                      # TypeScript domain models
+│   ├── dist/                           # Compiled production assets served by FastAPI
+│   └── package.json                    # React 19, Lucide, Recharts, Radix UI, Vite
 ├── gate/
 │   ├── verifier.py                     # Deterministic Evidence Gate (AST anti-masking, signature check)
 │   └── cli.py                          # Evidence Gate CLI interface
@@ -165,39 +185,23 @@ proofops/
 ├── benchmarks/
 │   └── agent_chaos.py                  # AgentChaos v3.0 adversarial failure-injection benchmark
 ├── models/
-│   └── incident.py                     # SQLite / SQLAlchemy ORM incident & evidence models
-├── simulations/
-│   └── run_incident_sim.py             # Full end-to-end multi-agent incident simulation
-├── ui/
-│   ├── index.html                      # Real-time incident dashboard with 500/200 split-screen & tamper alarm
-│   ├── styles.css                      # Production-grade incident room styling
-│   └── app.js                          # Split-screen replay, attestation viewer & live tamper simulator
+│   ├── incident.py                     # SQLAlchemy ORM incident & cryptographic evidence models
+│   └── integration.py                  # Switch, Sentry, GitHub, PagerDuty integration models
+├── services/
+│   └── checkout_api/                   # Realistic target service with ZeroDivisionError bug & repro script
+├── ui/                                 # Lightweight single-page fallback dashboard
 ├── template/
 │   ├── proofops.template.yaml          # Switch multi-agent room template
-│   └── prompt.md                       # Incident Squad orchestration prompt
-├── services/
-│   └── checkout-api/                   # Realistic target service with ZeroDivisionError bug
-│       ├── app.py
-│       ├── models.py
-│       ├── repro_script.py
-│       └── tests/
+│   └── incident-response.template.yaml # Switch incident response workflow template
 └── docs/
-    ├── TRACK_3_TEAM_PLAYBOOK.md        # Comprehensive teammate contribution guide
-    ├── OPEN_HACKATHON_ISSUES.md        # Hackathon connector directory & review findings
-    ├── devto_blog_post.md              # Official dev.to submission article
-    └── video_script_60s.md             # 60-second video demo walkthrough
-```
-
----
-
-## 9. Submission Video & Assets
+    ├── TRACK_3_TEAM_PLAYBOOK.md        # Teammate contribution playbook
     ├── devto_blog_post.md              # Technical blog post (AirPods 5 track)
     └── video_script_60s.md             # 60s demo script (#HowISwitch track)
 ```
 
 ---
 
-## 8. Submission Video & Assets
+## 10. Submission Video & Assets
 - **60-Second Demo Video:** [#HowISwitch Video Script](docs/video_script_60s.md)
 - **Technical Blog Post:** [Why Autonomous AI Agents Need Evidence Gates](docs/devto_blog_post.md)
 - **Voice Playbook:** [Wispr Flow Voice Command Guide](wispr/voice_prompts.md)

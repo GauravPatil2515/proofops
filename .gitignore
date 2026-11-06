@@ -33,6 +33,8 @@ verification/.keys/
 # Logs
 *.log
 
-# Data directory
-data/
+# Node modules
+node_modules/
+web/node_modules/
+!web/dist/
 
